@@ -330,7 +330,7 @@ export default function PlacedStudents() {
         <div>
           <h1 className="text-2xl font-display text-white">Placed Students</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-            Persistent placed list stored in SQLite and editable anytime
+            Persistent placed list stored in PostgreSQL and editable anytime
           </p>
         </div>
         <div className="flex items-center gap-2">

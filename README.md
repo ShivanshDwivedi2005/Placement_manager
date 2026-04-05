@@ -11,7 +11,7 @@ Simple full-stack app to:
 
 - Frontend: React + Vite + Tailwind
 - Backend: FastAPI
-- Database: SQLite
+- Database: PostgreSQL
 - File parsing: pandas
 - Auth: JWT + bcrypt
 - Email: Gmail SMTP
@@ -35,6 +35,8 @@ copy .env.example .env
 uvicorn main:app --reload --port 8000
 ```
 
+Create the PostgreSQL database named `internship_manager` first, or update `DATABASE_URL` to point to an existing database.
+
 API docs: `http://localhost:8000/docs`
 
 ## Frontend setup
@@ -51,7 +53,10 @@ Frontend: `http://localhost:5173`
 ## Environment variables
 
 ```env
-SQLITE_DB_PATH=./data/internship_manager.db
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/internship_manager
+DB_POOL_MIN_SIZE=1
+DB_POOL_MAX_SIZE=10
+DB_POOL_TIMEOUT=15
 
 ADMIN_PASSWORD=change-me
 # Prefer this in production instead of ADMIN_PASSWORD
@@ -115,7 +120,7 @@ Column names are flexible. Common variants like `btid`, `dept`, `student name`, 
 
 ## Notes
 
-- Master, placed, and latest applicant uploads are stored in SQLite.
+- Master, placed, and latest applicant uploads are stored in PostgreSQL.
 - Applicant uploads replace the previous applicant upload, which keeps filtering simple.
 - Placed and master imports replace the previous stored dataset.
 - BT-ID values are trimmed and uppercased before matching.

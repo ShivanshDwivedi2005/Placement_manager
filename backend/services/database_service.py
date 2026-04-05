@@ -1,44 +1,73 @@
 import json
-import sqlite3
+import math
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
+import psycopg
+from psycopg import sql
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
+
 from config import settings
+
+
+_pool: Optional[ConnectionPool] = None
 
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _db_path() -> Path:
-    return Path(settings.sqlite_db_path).resolve()
+def open_db_pool():
+    global _pool
+    if _pool is None:
+        _pool = ConnectionPool(
+            conninfo=settings.database_url,
+            min_size=settings.db_pool_min_size,
+            max_size=settings.db_pool_max_size,
+            timeout=settings.db_pool_timeout,
+            kwargs={"row_factory": dict_row},
+            open=False,
+        )
+    if _pool.closed:
+        _pool.open(wait=True)
+
+
+def close_db_pool():
+    global _pool
+    if _pool is not None and not _pool.closed:
+        _pool.close()
 
 
 @contextmanager
 def get_connection():
-    db_path = _db_path()
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    if _pool is None or _pool.closed:
+        open_db_pool()
+    conn = _pool.getconn()
     try:
         yield conn
         conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
-        conn.close()
+        _pool.putconn(conn)
 
 
-def _ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, column_type: str):
-    columns = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
-    existing = {column["name"] for column in columns}
-    if column_name not in existing:
-        conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
+def _ensure_column(conn, table_name: str, column_name: str, column_type: str):
+    conn.execute(
+        sql.SQL("ALTER TABLE {} ADD COLUMN IF NOT EXISTS {} {}").format(
+            sql.Identifier(table_name),
+            sql.Identifier(column_name),
+            sql.SQL(column_type),
+        )
+    )
 
 
 def init_db():
     with get_connection() as conn:
-        conn.executescript(
+        conn.execute(
             """
             CREATE TABLE IF NOT EXISTS placed_students (
                 bt_id TEXT PRIMARY KEY,
@@ -49,56 +78,69 @@ def init_db():
                 stipend TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
-            );
-
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS master_students (
                 bt_id TEXT PRIMARY KEY,
                 name TEXT,
-                cgpa REAL,
+                cgpa DOUBLE PRECISION,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
-            );
-
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS uploaded_applicants (
                 bt_id TEXT PRIMARY KEY,
                 raw_data TEXT,
                 uploaded_at TEXT NOT NULL
-            );
-
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS app_meta (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
-            );
-
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS download_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id BIGSERIAL PRIMARY KEY,
                 filename TEXT NOT NULL,
                 filters_json TEXT NOT NULL,
                 columns_json TEXT NOT NULL,
                 rows_json TEXT NOT NULL,
                 row_count INTEGER NOT NULL,
                 created_at TEXT NOT NULL
-            );
+            )
             """
         )
         _ensure_column(conn, "placed_students", "duration", "TEXT")
         _ensure_column(conn, "placed_students", "job_profile", "TEXT")
         _ensure_column(conn, "uploaded_applicants", "raw_data", "TEXT")
+        conn.execute("UPDATE master_students SET cgpa = NULL WHERE cgpa = 'NaN'::float8")
 
 
-def _set_meta(conn: sqlite3.Connection, key: str, value):
+def _set_meta(conn, key: str, value):
     conn.execute(
         """
         INSERT INTO app_meta(key, value)
-        VALUES (?, ?)
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        VALUES (%s, %s)
+        ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value
         """,
         (key, json.dumps(value)),
     )
 
 
-def _get_meta(conn: sqlite3.Connection, key: str, default=None):
-    row = conn.execute("SELECT value FROM app_meta WHERE key = ?", (key,)).fetchone()
+def _get_meta(conn, key: str, default=None):
+    row = conn.execute("SELECT value FROM app_meta WHERE key = %s", (key,)).fetchone()
     if not row:
         return default
     return json.loads(row["value"])
@@ -108,6 +150,24 @@ def _normalize_bt_id(value: str) -> str:
     return str(value or "").strip().upper()
 
 
+def _normalize_float(value):
+    if value is None:
+        return None
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
+def _json_safe(value):
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
 def replace_master_students(students: Iterable[Dict], source_filename: Optional[str] = None) -> int:
     now = utc_now_iso()
     rows = []
@@ -115,18 +175,19 @@ def replace_master_students(students: Iterable[Dict], source_filename: Optional[
         bt_id = _normalize_bt_id(student.get("bt_id"))
         if not bt_id:
             continue
-        rows.append((bt_id, student.get("name"), student.get("cgpa"), now, now))
+        rows.append((bt_id, student.get("name"), _normalize_float(student.get("cgpa")), now, now))
 
     with get_connection() as conn:
         conn.execute("DELETE FROM master_students")
         if rows:
-            conn.executemany(
-                """
-                INSERT INTO master_students(bt_id, name, cgpa, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                rows,
-            )
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """
+                    INSERT INTO master_students(bt_id, name, cgpa, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    rows,
+                )
         _set_meta(conn, "master_updated_at", now)
         _set_meta(conn, "master_source_filename", source_filename or "")
     return len(rows)
@@ -155,13 +216,14 @@ def replace_placed_students(students: Iterable[Dict], source_filename: Optional[
     with get_connection() as conn:
         conn.execute("DELETE FROM placed_students")
         if rows:
-            conn.executemany(
-                """
-                INSERT INTO placed_students(bt_id, name, company, job_profile, duration, stipend, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                rows,
-            )
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """
+                    INSERT INTO placed_students(bt_id, name, company, job_profile, duration, stipend, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    rows,
+                )
         _set_meta(conn, "placed_updated_at", now)
         _set_meta(conn, "placed_source_filename", source_filename or "")
     return len(rows)
@@ -180,18 +242,19 @@ def store_uploaded_applicants(
             continue
         payload = dict(applicant)
         payload["bt_id"] = bt_id
-        rows.append((bt_id, json.dumps(payload), now))
+        rows.append((bt_id, json.dumps(_json_safe(payload)), now))
 
     with get_connection() as conn:
         conn.execute("DELETE FROM uploaded_applicants")
         if rows:
-            conn.executemany(
-                """
-                INSERT INTO uploaded_applicants(bt_id, raw_data, uploaded_at)
-                VALUES (?, ?, ?)
-                """,
-                rows,
-            )
+            with conn.cursor() as cur:
+                cur.executemany(
+                    """
+                    INSERT INTO uploaded_applicants(bt_id, raw_data, uploaded_at)
+                    VALUES (%s, %s, %s)
+                    """,
+                    rows,
+                )
         _set_meta(conn, "applicants_updated_at", now)
         _set_meta(conn, "applicants_source_filename", source_filename or "")
         _set_meta(conn, "applicants_columns", columns or [])
@@ -208,14 +271,16 @@ def get_placed_students() -> List[Dict]:
             """
         ).fetchall()
     return [
-        {
-            "BT-ID": row["bt_id"],
-            "Name": row["name"],
-            "Company": row["company"],
-            "Job Profile": row["job_profile"],
-            "Duration": row["duration"],
-            "Stipend": row["stipend"],
-        }
+        _json_safe(
+            {
+                "BT-ID": row["bt_id"],
+                "Name": row["name"],
+                "Company": row["company"],
+                "Job Profile": row["job_profile"],
+                "Duration": row["duration"],
+                "Stipend": row["stipend"],
+            }
+        )
         for row in rows
     ]
 
@@ -230,11 +295,13 @@ def get_master_students() -> List[Dict]:
             """
         ).fetchall()
     return [
-        {
-            "BT-ID": row["bt_id"],
-            "Name": row["name"],
-            "CGPA": row["cgpa"],
-        }
+        _json_safe(
+            {
+                "BT-ID": row["bt_id"],
+                "Name": row["name"],
+                "CGPA": row["cgpa"],
+            }
+        )
         for row in rows
     ]
 
@@ -254,7 +321,7 @@ def get_uploaded_applicants() -> List[Dict]:
         if row["raw_data"]:
             payload = json.loads(row["raw_data"])
             payload["bt_id"] = _normalize_bt_id(payload.get("bt_id"))
-            applicants.append(payload)
+            applicants.append(_json_safe(payload))
         else:
             applicants.append({"bt_id": row["bt_id"]})
     return applicants
@@ -277,17 +344,19 @@ def save_download_history(
         cursor = conn.execute(
             """
             INSERT INTO download_history(filename, filters_json, columns_json, rows_json, row_count, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
             """,
             (
                 filename,
-                json.dumps(filters_used),
-                json.dumps(columns),
-                json.dumps(rows),
+                json.dumps(_json_safe(filters_used)),
+                json.dumps(_json_safe(columns)),
+                json.dumps(_json_safe(rows)),
                 len(rows),
                 created_at,
             ),
         )
+        entry_id = cursor.fetchone()["id"]
 
         conn.execute(
             """
@@ -295,13 +364,13 @@ def save_download_history(
             WHERE id NOT IN (
                 SELECT id
                 FROM download_history
-                ORDER BY datetime(created_at) DESC, id DESC
+                ORDER BY created_at DESC, id DESC
                 LIMIT 5
             )
             """
         )
 
-        return cursor.lastrowid
+        return entry_id
 
 
 def get_recent_download_history() -> List[Dict]:
@@ -310,7 +379,7 @@ def get_recent_download_history() -> List[Dict]:
             """
             SELECT id, filename, filters_json, columns_json, row_count, created_at
             FROM download_history
-            ORDER BY datetime(created_at) DESC, id DESC
+            ORDER BY created_at DESC, id DESC
             LIMIT 5
             """
         ).fetchall()
@@ -319,8 +388,8 @@ def get_recent_download_history() -> List[Dict]:
         {
             "id": row["id"],
             "filename": row["filename"],
-            "filters": json.loads(row["filters_json"] or "{}"),
-            "columns": json.loads(row["columns_json"] or "[]"),
+            "filters": _json_safe(json.loads(row["filters_json"] or "{}")),
+            "columns": _json_safe(json.loads(row["columns_json"] or "[]")),
             "row_count": row["row_count"],
             "created_at": row["created_at"],
         }
@@ -334,7 +403,7 @@ def get_download_history_entry(entry_id: int) -> Optional[Dict]:
             """
             SELECT id, filename, filters_json, columns_json, rows_json, row_count, created_at
             FROM download_history
-            WHERE id = ?
+            WHERE id = %s
             """,
             (entry_id,),
         ).fetchone()
@@ -342,15 +411,17 @@ def get_download_history_entry(entry_id: int) -> Optional[Dict]:
     if not row:
         return None
 
-    return {
-        "id": row["id"],
-        "filename": row["filename"],
-        "filters": json.loads(row["filters_json"] or "{}"),
-        "columns": json.loads(row["columns_json"] or "[]"),
-        "rows": json.loads(row["rows_json"] or "[]"),
-        "row_count": row["row_count"],
-        "created_at": row["created_at"],
-    }
+    return _json_safe(
+        {
+            "id": row["id"],
+            "filename": row["filename"],
+            "filters": json.loads(row["filters_json"] or "{}"),
+            "columns": json.loads(row["columns_json"] or "[]"),
+            "rows": json.loads(row["rows_json"] or "[]"),
+            "row_count": row["row_count"],
+            "created_at": row["created_at"],
+        }
+    )
 
 
 def get_truly_unplaced_students() -> List[Dict]:
@@ -365,11 +436,13 @@ def get_truly_unplaced_students() -> List[Dict]:
             """
         ).fetchall()
     return [
-        {
-            "BT-ID": row["bt_id"],
-            "Name": row["name"],
-            "CGPA": row["cgpa"],
-        }
+        _json_safe(
+            {
+                "BT-ID": row["bt_id"],
+                "Name": row["name"],
+                "CGPA": row["cgpa"],
+            }
+        )
         for row in rows
     ]
 
@@ -383,14 +456,14 @@ def add_placed_student(student: Dict) -> bool:
         conn.execute(
             """
             INSERT INTO placed_students(bt_id, name, company, job_profile, duration, stipend, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT(bt_id) DO UPDATE SET
-                name = excluded.name,
-                company = excluded.company,
-                job_profile = excluded.job_profile,
-                duration = excluded.duration,
-                stipend = excluded.stipend,
-                updated_at = excluded.updated_at
+                name = EXCLUDED.name,
+                company = EXCLUDED.company,
+                job_profile = EXCLUDED.job_profile,
+                duration = EXCLUDED.duration,
+                stipend = EXCLUDED.stipend,
+                updated_at = EXCLUDED.updated_at
             """,
             (
                 bt_id,
@@ -410,7 +483,7 @@ def add_placed_student(student: Dict) -> bool:
 def remove_placed_student(bt_id: str) -> bool:
     normalized = _normalize_bt_id(bt_id)
     with get_connection() as conn:
-        result = conn.execute("DELETE FROM placed_students WHERE bt_id = ?", (normalized,))
+        result = conn.execute("DELETE FROM placed_students WHERE bt_id = %s", (normalized,))
         if result.rowcount:
             _set_meta(conn, "placed_updated_at", utc_now_iso())
             return True

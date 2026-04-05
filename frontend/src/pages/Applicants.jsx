@@ -111,7 +111,7 @@ export default function Applicants() {
       })
       const disposition = res.headers['content-disposition'] || ''
       const filenameMatch = disposition.match(/filename="([^"]+)"/i)
-      const filename = filenameMatch?.[1] || 'filtered_applicants.csv'
+      const filename = filenameMatch?.[1] || 'filtered_applicants.xlsx'
       const url = window.URL.createObjectURL(new Blob([res.data]))
       const anchor = document.createElement('a')
       anchor.href = url
@@ -119,7 +119,7 @@ export default function Applicants() {
       anchor.click()
       window.URL.revokeObjectURL(url)
       await fetchRecentDownloads(true)
-      toast.success('CSV downloaded and email notification sent')
+      toast.success('Excel file downloaded and email notification sent')
     } catch (_) {
       toast.error('Download failed')
     } finally {
@@ -368,7 +368,7 @@ export default function Applicants() {
               style={{ background: 'rgba(34,197,94,0.15)', color: '#4ade80', border: '1px solid rgba(34,197,94,0.3)' }}
             >
               <Download size={12} />
-              {downloading ? 'Downloading...' : 'Download CSV'}
+              {downloading ? 'Downloading...' : 'Download Excel'}
             </button>
           </div>
         </div>
@@ -386,9 +386,9 @@ export default function Applicants() {
       <div className="rounded-2xl p-5 space-y-4" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
-            <h2 className="text-sm font-semibold text-white">Recent CSV Downloads</h2>
+            <h2 className="text-sm font-semibold text-white">Recent Filter Downloads</h2>
             <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
-              The newest 5 downloaded filtered CSV files are stored here for spreadsheet-style viewing.
+              The newest 5 downloaded filtered files are stored here for spreadsheet-style viewing.
             </p>
           </div>
           <span
@@ -403,7 +403,7 @@ export default function Applicants() {
           <div className="space-y-2">
             {recentDownloads.length === 0 ? (
               <div className="rounded-xl px-4 py-6 text-sm text-center" style={{ background: 'var(--surface2)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
-                No downloaded CSV history yet.
+                No downloaded file history yet.
               </div>
             ) : (
               recentDownloads.map((entry) => {
@@ -420,7 +420,7 @@ export default function Applicants() {
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-sm font-medium" style={{ color: selected ? '#60a5fa' : 'var(--text)' }}>
-                        CSV #{entry.id}
+                        File #{entry.id}
                       </span>
                       <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(34,197,94,0.12)', color: '#4ade80' }}>
                         {entry.row_count} rows
@@ -472,11 +472,11 @@ export default function Applicants() {
                 columns={recentColumns}
                 rows={recentPreview?.rows ?? []}
                 loading={recentLoading}
-                emptyMsg="No rows were saved in this CSV snapshot."
+                emptyMsg="No rows were saved in this downloaded file."
               />
             ) : (
               <div className="rounded-2xl px-4 py-12 text-center text-sm" style={{ border: '1px solid var(--border)', color: 'var(--muted)' }}>
-                Select a saved CSV to preview it here.
+                Select a saved file to preview it here.
               </div>
             )}
           </div>

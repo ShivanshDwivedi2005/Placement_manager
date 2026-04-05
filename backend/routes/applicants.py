@@ -1,4 +1,3 @@
-import csv
 import io
 import logging
 import re
@@ -6,6 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
+from openpyxl import Workbook
 
 from auth.jwt_handler import get_current_admin
 from services.applicant_service import applicants_have_semantic_column, filter_applicants, parse_applicant_file
@@ -59,7 +59,11 @@ def _build_download_filename(search: Optional[str], cgpa_min: Optional[float], r
     if cgpa_min is not None:
         parts.append(f"cgpa_{str(cgpa_min).replace('.', '_')}")
     parts.append("placed_removed" if remove_placed else "placed_kept")
-    return f"{'_'.join(parts)}.csv"
+    return f"{'_'.join(parts)}.xlsx"
+
+
+def _looks_like_url(value) -> bool:
+    return isinstance(value, str) and re.match(r"^https?://", value.strip(), re.IGNORECASE) is not None
 
 
 @router.post("/upload")
@@ -158,22 +162,37 @@ async def download_filtered_csv(
     )
 
     columns = get_uploaded_applicant_columns() or (list(filtered[0].keys()) if filtered else ["bt_id"])
-    output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=columns)
-    writer.writeheader()
-    for row in filtered:
-        writer.writerow({key: row.get(key) for key in columns})
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Filtered Applicants"
+    worksheet.append(columns)
 
-    csv_bytes = output.getvalue().encode("utf-8")
+    for cell in worksheet[1]:
+        cell.style = "Headline 1"
+
+    for row in filtered:
+        worksheet.append([row.get(key) for key in columns])
+
+    for row in worksheet.iter_rows(min_row=2):
+        for cell in row:
+            value = cell.value
+            if _looks_like_url(value):
+                cell.hyperlink = str(value).strip()
+                cell.style = "Hyperlink"
+
+    workbook_bytes = io.BytesIO()
+    workbook.save(workbook_bytes)
+    workbook_bytes.seek(0)
+    file_bytes = workbook_bytes.getvalue()
     normalized_search = _normalize_search(search)
     filters_used = _build_filters_used(normalized_search, cgpa_min, remove_placed)
     filename = _build_download_filename(normalized_search, cgpa_min, remove_placed)
     save_download_history(filename=filename, filters_used=filters_used, columns=columns, rows=filtered)
-    background_tasks.add_task(send_download_notification, len(filtered), csv_bytes, filename)
+    background_tasks.add_task(send_download_notification, len(filtered), file_bytes, filename)
 
     return StreamingResponse(
-        io.BytesIO(csv_bytes),
-        media_type="text/csv",
+        io.BytesIO(file_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 

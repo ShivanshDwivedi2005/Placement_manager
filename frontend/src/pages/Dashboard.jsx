@@ -36,7 +36,7 @@ export default function Dashboard() {
         <div>
           <h1 className="text-2xl font-display text-white">Dashboard</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-            SQLite-backed internship filtering with one-time master and placed imports
+            PostgreSQL-backed internship filtering with one-time master and placed imports
           </p>
         </div>
         <button
@@ -115,7 +115,7 @@ export default function Dashboard() {
         <h3 className="text-sm font-semibold text-white mb-3">How This Version Works</h3>
         <ol className="space-y-2">
           {[
-            'Upload the all-students master sheet once to seed the SQLite database.',
+            'Upload the all-students master sheet once to seed the PostgreSQL database.',
             'Upload the placed students file once, then keep editing that list from the admin panel.',
             'Whenever you receive a new applicant sheet, upload it on the Applicants page.',
             'The system removes BT-IDs already present in the placed list and shows only eligible students.',

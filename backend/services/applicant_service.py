@@ -74,7 +74,16 @@ def _remove_duplicate_bt_ids(df: pd.DataFrame, warnings: List[str]) -> pd.DataFr
 
 
 def _finalize_records(df: pd.DataFrame) -> List[Dict]:
-    return df.where(pd.notna(df), None).to_dict(orient="records")
+    records = df.to_dict(orient="records")
+    normalized_records = []
+
+    for record in records:
+        normalized_record = {}
+        for key, value in record.items():
+            normalized_record[key] = None if pd.isna(value) else value
+        normalized_records.append(normalized_record)
+
+    return normalized_records
 
 
 def _get_semantic_value(record: Dict, semantic_key: str):

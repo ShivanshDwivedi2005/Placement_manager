@@ -57,7 +57,7 @@ async def upload_placed_file(file: UploadFile = File(...), _=Depends(get_current
         "count": count,
         "warnings": warnings,
         "filename": file.filename,
-        "message": "Placed students file imported into SQLite",
+        "message": "Placed students file imported into PostgreSQL",
     }
 
 

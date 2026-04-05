@@ -24,7 +24,7 @@ async def upload_master_students(file: UploadFile = File(...), _=Depends(get_cur
         "count": count,
         "warnings": warnings,
         "filename": file.filename,
-        "message": "Master students file imported into SQLite",
+        "message": "Master students file imported into PostgreSQL",
     }
 
 

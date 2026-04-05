@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
 from routes import applicants, auth, placed, students
-from services.database_service import init_db
+from services.database_service import close_db_pool, init_db, open_db_pool
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -14,9 +14,13 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    open_db_pool()
     init_db()
-    logger.info("SQLite database initialized")
-    yield
+    logger.info("PostgreSQL database initialized")
+    try:
+        yield
+    finally:
+        close_db_pool()
 
 
 app = FastAPI(

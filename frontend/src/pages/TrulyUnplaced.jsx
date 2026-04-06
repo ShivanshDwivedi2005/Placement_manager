@@ -10,6 +10,8 @@ export default function TrulyUnplaced() {
   const [students, setStudents] = useState([])
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
+  const [branch, setBranch] = useState('')
+  const [branchOptions, setBranchOptions] = useState([])
   const [lastSync, setLastSync] = useState(null)
   const [sourceFilename, setSourceFilename] = useState('')
 
@@ -18,6 +20,7 @@ export default function TrulyUnplaced() {
     try {
       const params = {}
       if (search) params.search = search
+      if (branch) params.branch = branch
 
       const [unplacedRes, masterRes] = await Promise.all([
         api.get('/students/unplaced', { params }),
@@ -27,6 +30,9 @@ export default function TrulyUnplaced() {
       setStudents(unplacedRes.data.students)
       setLastSync(unplacedRes.data.last_sync)
       setSourceFilename(masterRes.data.source_filename)
+      setBranchOptions(
+        [...new Set((masterRes.data.students ?? []).map((student) => student.Branch).filter(Boolean))].sort()
+      )
     } catch (_) {
       toast.error('Failed to load truly unplaced students')
     } finally {
@@ -36,7 +42,7 @@ export default function TrulyUnplaced() {
 
   useEffect(() => {
     load()
-  }, [search])
+  }, [search, branch])
 
   const inputCls = 'px-3 py-2 rounded-xl text-sm outline-none transition-all focus:ring-1 focus:ring-rose-500/30'
   const inputStyle = { background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)' }
@@ -52,6 +58,20 @@ export default function TrulyUnplaced() {
       ),
     },
     { key: 'Name', label: 'Name', render: (value) => <span className="font-medium text-white">{value}</span> },
+    {
+      key: 'Branch',
+      label: 'Branch',
+      render: (value) => value
+        ? (
+          <span
+            className="text-xs px-2 py-0.5 rounded-full font-semibold"
+            style={{ background: 'rgba(59,130,246,0.12)', color: '#93c5fd', border: '1px solid rgba(59,130,246,0.25)' }}
+          >
+            {value}
+          </span>
+          )
+        : '—',
+    },
     {
       key: 'CGPA',
       label: 'CGPA',
@@ -77,7 +97,7 @@ export default function TrulyUnplaced() {
             Truly Unplaced
           </h1>
           <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-            Master students minus placed students, without department fields
+            Master students minus placed students, with branch derived from BT-ID
           </p>
         </div>
         <button
@@ -100,15 +120,31 @@ export default function TrulyUnplaced() {
         onSuccess={load}
       />
 
-      <div className="relative flex-1 min-w-48">
-        <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted)' }} />
-        <input
+      <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_220px] gap-3">
+        <div className="relative flex-1 min-w-48">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--muted)' }} />
+          <input
+            className={inputCls}
+            style={{ ...inputStyle, paddingLeft: '2rem', width: '100%' }}
+            placeholder="Search name / BT-ID..."
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </div>
+
+        <select
           className={inputCls}
-          style={{ ...inputStyle, paddingLeft: '2rem', width: '100%' }}
-          placeholder="Search name / BT-ID..."
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
+          style={inputStyle}
+          value={branch}
+          onChange={(event) => setBranch(event.target.value)}
+        >
+          <option value="">All Branches</option>
+          {branchOptions.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -116,6 +152,14 @@ export default function TrulyUnplaced() {
           <span className="text-sm" style={{ color: 'var(--muted)' }}>
             <strong className="text-white">{students.length}</strong> unplaced students
           </span>
+          {branch && (
+            <span
+              className="text-xs px-2 py-0.5 rounded-full"
+              style={{ background: 'rgba(59,130,246,0.12)', color: '#93c5fd', border: '1px solid rgba(59,130,246,0.25)' }}
+            >
+              Branch: {branch}
+            </span>
+          )}
           <span
             className="text-xs px-2 py-0.5 rounded-full"
             style={{ background: 'rgba(244,63,94,0.1)', color: '#fb7185', border: '1px solid rgba(244,63,94,0.25)' }}

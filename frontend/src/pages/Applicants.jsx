@@ -9,8 +9,11 @@ import api from '../utils/api'
 const DEFAULT_FILTERS = {
   search: '',
   cgpaMin: '',
+  branch: '',
   removePlaced: true,
 }
+
+const BRANCH_OPTIONS = ['CSE', 'ECE']
 
 export default function Applicants() {
   const [uploaded, setUploaded] = useState(false)
@@ -28,6 +31,7 @@ export default function Applicants() {
     notify,
     search: currentFilters.search.trim() || undefined,
     cgpa_min: currentFilters.cgpaMin === '' ? undefined : Number(currentFilters.cgpaMin),
+    branch: currentFilters.branch || undefined,
     remove_placed: currentFilters.removePlaced,
   })
 
@@ -243,21 +247,42 @@ export default function Applicants() {
             </div>
           </label>
 
-          <label className="space-y-2">
-            <span className="text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--muted)' }}>
-              Minimum CGPA
-            </span>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={filters.cgpaMin}
-              onChange={(event) => setFilters((current) => ({ ...current, cgpaMin: event.target.value }))}
-              className="w-full px-3 py-3 rounded-xl text-sm outline-none"
-              style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)' }}
-              placeholder="e.g. 8.00"
-            />
-          </label>
+          <div className="space-y-3">
+            <label className="space-y-2 block">
+              <span className="text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--muted)' }}>
+                Minimum CGPA
+              </span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={filters.cgpaMin}
+                onChange={(event) => setFilters((current) => ({ ...current, cgpaMin: event.target.value }))}
+                className="w-full px-3 py-3 rounded-xl text-sm outline-none"
+                style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)' }}
+                placeholder="e.g. 8.00"
+              />
+            </label>
+
+            <label className="space-y-2 block">
+              <span className="text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--muted)' }}>
+                Branch
+              </span>
+              <select
+                value={filters.branch}
+                onChange={(event) => setFilters((current) => ({ ...current, branch: event.target.value }))}
+                className="w-full px-3 py-3 rounded-xl text-sm outline-none"
+                style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)' }}
+              >
+                <option value="">All Branches</option>
+                {BRANCH_OPTIONS.map((branch) => (
+                  <option key={branch} value={branch}>
+                    {branch}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
 
           <label className="rounded-xl px-4 py-3 flex items-center gap-3 cursor-pointer" style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}>
             <input
@@ -379,7 +404,7 @@ export default function Applicants() {
           columns={columns}
           rows={data?.filtered ?? []}
           loading={loading}
-          emptyMsg="No applicants matched the current BT-ID, CGPA, and search filters."
+          emptyMsg="No applicants matched the current BT-ID, branch, CGPA, and search filters."
         />
       )}
 

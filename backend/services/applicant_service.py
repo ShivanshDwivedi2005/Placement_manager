@@ -3,6 +3,7 @@ import re
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
+from services.database_service import derive_branch_from_bt_id, normalize_branch
 
 EXPECTED_COLUMNS = {
     "bt_id": ["bt-id", "bt id", "btid", "bt_id", "student id", "studentid", "id", "roll no", "rollno", "roll number", "rollnumber"],
@@ -131,6 +132,15 @@ def _matches_cgpa(applicant: Dict, cgpa_min: Optional[float]) -> bool:
     return cgpa_value >= cgpa_min
 
 
+def _matches_branch(applicant: Dict, branch: Optional[str]) -> bool:
+    if not branch:
+        return True
+
+    selected_branch = normalize_branch(branch)
+    applicant_branch = derive_branch_from_bt_id(applicant.get("bt_id"))
+    return applicant_branch == selected_branch
+
+
 def parse_applicant_file(file_bytes: bytes, filename: str) -> Tuple[List[Dict], List[str], List[str]]:
     warnings: List[str] = []
     df = _prepare_dataframe(file_bytes, filename)
@@ -205,6 +215,7 @@ def filter_applicants(
     remove_placed: bool = True,
     search: Optional[str] = None,
     cgpa_min: Optional[float] = None,
+    branch: Optional[str] = None,
 ) -> Tuple[List[Dict], List[Dict], List[Dict]]:
     placed_in_upload = []
     unplaced = []
@@ -220,7 +231,7 @@ def filter_applicants(
     filtered = [
         applicant
         for applicant in base_rows
-        if _matches_search(applicant, search) and _matches_cgpa(applicant, cgpa_min)
+        if _matches_search(applicant, search) and _matches_cgpa(applicant, cgpa_min) and _matches_branch(applicant, branch)
     ]
 
     return filtered, placed_in_upload, unplaced

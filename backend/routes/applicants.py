@@ -16,6 +16,7 @@ from services.database_service import (
     get_storage_status,
     get_uploaded_applicant_columns,
     get_uploaded_applicants,
+    normalize_branch,
     save_download_history,
     store_uploaded_applicants,
 )
@@ -41,16 +42,17 @@ def _normalize_search(value: Optional[str]) -> Optional[str]:
     return normalized or None
 
 
-def _build_filters_used(search: Optional[str], cgpa_min: Optional[float], remove_placed: bool):
+def _build_filters_used(search: Optional[str], cgpa_min: Optional[float], branch: Optional[str], remove_placed: bool):
     return {
         "Search": search or "Not applied",
         "CGPA Minimum": cgpa_min if cgpa_min is not None else "Not applied",
+        "Branch": normalize_branch(branch) if branch else "Not applied",
         "Remove Placed Students": "Yes" if remove_placed else "No",
         "Duplicate BT-ID Removal": "Automatic during upload",
     }
 
 
-def _build_download_filename(search: Optional[str], cgpa_min: Optional[float], remove_placed: bool) -> str:
+def _build_download_filename(search: Optional[str], cgpa_min: Optional[float], branch: Optional[str], remove_placed: bool) -> str:
     parts = ["filtered_applicants"]
     if search:
         safe_search = re.sub(r"[^A-Za-z0-9_-]+", "_", search.strip())[:30].strip("_")
@@ -58,6 +60,8 @@ def _build_download_filename(search: Optional[str], cgpa_min: Optional[float], r
             parts.append(f"search_{safe_search}")
     if cgpa_min is not None:
         parts.append(f"cgpa_{str(cgpa_min).replace('.', '_')}")
+    if branch:
+        parts.append(f"branch_{normalize_branch(branch)}")
     parts.append("placed_removed" if remove_placed else "placed_kept")
     return f"{'_'.join(parts)}.xlsx"
 
@@ -99,6 +103,7 @@ async def get_filtered_applicants(
     background_tasks: BackgroundTasks,
     search: Optional[str] = Query(None),
     cgpa_min: Optional[float] = Query(None, ge=0),
+    branch: Optional[str] = Query(None),
     remove_placed: bool = Query(True),
     notify: bool = Query(False),
     _=Depends(get_current_admin),
@@ -113,13 +118,14 @@ async def get_filtered_applicants(
         remove_placed=remove_placed,
         search=normalized_search,
         cgpa_min=cgpa_min,
+        branch=branch,
     )
 
     response_warnings = list(_last_upload_warnings)
     if cgpa_min is not None and not applicants_have_semantic_column(applicants, "cgpa"):
         response_warnings.append("CGPA filter was applied, but no CGPA column was detected in the uploaded file")
 
-    filters_used = _build_filters_used(normalized_search, cgpa_min, remove_placed)
+    filters_used = _build_filters_used(normalized_search, cgpa_min, branch, remove_placed)
 
     if notify:
         background_tasks.add_task(
@@ -148,6 +154,7 @@ async def download_filtered_csv(
     background_tasks: BackgroundTasks,
     search: Optional[str] = Query(None),
     cgpa_min: Optional[float] = Query(None, ge=0),
+    branch: Optional[str] = Query(None),
     remove_placed: bool = Query(True),
     _=Depends(get_current_admin),
 ):
@@ -159,6 +166,7 @@ async def download_filtered_csv(
         remove_placed=remove_placed,
         search=_normalize_search(search),
         cgpa_min=cgpa_min,
+        branch=branch,
     )
 
     columns = get_uploaded_applicant_columns() or (list(filtered[0].keys()) if filtered else ["bt_id"])
@@ -185,8 +193,8 @@ async def download_filtered_csv(
     workbook_bytes.seek(0)
     file_bytes = workbook_bytes.getvalue()
     normalized_search = _normalize_search(search)
-    filters_used = _build_filters_used(normalized_search, cgpa_min, remove_placed)
-    filename = _build_download_filename(normalized_search, cgpa_min, remove_placed)
+    filters_used = _build_filters_used(normalized_search, cgpa_min, branch, remove_placed)
+    filename = _build_download_filename(normalized_search, cgpa_min, branch, remove_placed)
     save_download_history(filename=filename, filters_used=filters_used, columns=columns, rows=filtered)
     background_tasks.add_task(send_download_notification, len(filtered), file_bytes, filename)
 

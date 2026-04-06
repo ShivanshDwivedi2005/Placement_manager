@@ -1,5 +1,6 @@
 import json
 import math
+import re
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Dict, Iterable, List, Optional
@@ -13,6 +14,14 @@ from config import settings
 
 
 _pool: Optional[ConnectionPool] = None
+BRANCH_ALIAS_MAP = {
+    "CSE": "CSE",
+    "CSD": "CSE",
+    "CSA": "CSE",
+    "CSH": "CSE",
+    "ECE": "ECE",
+    "ECI": "ECE",
+}
 
 
 def utc_now_iso() -> str:
@@ -150,6 +159,19 @@ def _normalize_bt_id(value: str) -> str:
     return str(value or "").strip().upper()
 
 
+def normalize_branch(value: Optional[str]) -> str:
+    branch = str(value or "").strip().upper()
+    return BRANCH_ALIAS_MAP.get(branch, branch)
+
+
+def derive_branch_from_bt_id(bt_id: Optional[str]) -> str:
+    normalized_bt_id = _normalize_bt_id(bt_id)
+    match = re.match(r"^BT\d{2}([A-Z]+)\d+$", normalized_bt_id)
+    if not match:
+        return ""
+    return normalize_branch(match.group(1))
+
+
 def _normalize_float(value):
     if value is None:
         return None
@@ -275,6 +297,7 @@ def get_placed_students() -> List[Dict]:
             {
                 "BT-ID": row["bt_id"],
                 "Name": row["name"],
+                "Branch": derive_branch_from_bt_id(row["bt_id"]),
                 "Company": row["company"],
                 "Job Profile": row["job_profile"],
                 "Duration": row["duration"],
@@ -299,6 +322,7 @@ def get_master_students() -> List[Dict]:
             {
                 "BT-ID": row["bt_id"],
                 "Name": row["name"],
+                "Branch": derive_branch_from_bt_id(row["bt_id"]),
                 "CGPA": row["cgpa"],
             }
         )
@@ -440,6 +464,7 @@ def get_truly_unplaced_students() -> List[Dict]:
             {
                 "BT-ID": row["bt_id"],
                 "Name": row["name"],
+                "Branch": derive_branch_from_bt_id(row["bt_id"]),
                 "CGPA": row["cgpa"],
             }
         )

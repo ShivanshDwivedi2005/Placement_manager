@@ -50,6 +50,61 @@ npm run dev
 
 Frontend: `http://localhost:5173`
 
+Local dev note:
+- `frontend/vite.config.js` proxies `/api` to `http://localhost:8000`
+- `frontend/src/utils/api.js` uses `VITE_API_URL` when set, otherwise `/api`
+
+## Deployment
+
+### Frontend on Vercel
+
+1. Import the `frontend` folder as the Vercel project root.
+2. Set `VITE_API_URL` in Vercel to your Render backend URL, for example:
+
+```env
+VITE_API_URL=https://your-api-name.onrender.com
+```
+
+3. Deploy normally. The included [vercel.json](./frontend/vercel.json) handles:
+- Vite build output
+- SPA rewrites for React Router refreshes
+- long cache headers for built assets
+
+### Backend on Render
+
+1. Create a Render Web Service from this repo.
+2. Use the repo root so Render can read [render.yaml](./render.yaml).
+3. Render will build from `backend/` and start FastAPI with:
+
+```bash
+uvicorn main:app --host 0.0.0.0 --port $PORT
+```
+
+4. Set these required environment variables in Render:
+
+```env
+DATABASE_URL=postgresql://...
+ADMIN_PASSWORD_HASH=<bcrypt hash>
+JWT_SECRET_KEY=<long-random-secret>
+FRONTEND_URLS=https://your-vercel-app.vercel.app,https://your-custom-domain.com
+PYTHON_VERSION=3.11.9
+```
+
+Optional but recommended:
+
+```env
+CORS_ALLOW_ORIGIN_REGEX=https://.*\.vercel\.app
+EMAIL_USER=your@gmail.com
+EMAIL_PASS=your_app_password
+NOTIFICATION_EMAIL=xyz@gmail.com
+```
+
+Deployment notes:
+- `FRONTEND_URLS` supports multiple comma-separated origins
+- `CORS_ALLOW_ORIGIN_REGEX` is useful for Vercel preview URLs
+- `GZipMiddleware` is enabled in production to reduce payload size
+- `/health` is ready for Render health checks
+
 ## Environment variables
 
 ```env
@@ -57,6 +112,7 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/internship_manager
 DB_POOL_MIN_SIZE=1
 DB_POOL_MAX_SIZE=10
 DB_POOL_TIMEOUT=15
+GZIP_MINIMUM_SIZE=500
 
 ADMIN_PASSWORD=change-me
 # Prefer this in production instead of ADMIN_PASSWORD
@@ -71,6 +127,9 @@ EMAIL_PASS=your_gmail_app_password
 NOTIFICATION_EMAIL=xyz@gmail.com
 
 FRONTEND_URL=http://localhost:5173
+FRONTEND_URLS=http://localhost:5173,http://localhost:3000
+# Useful for Vercel preview deployments
+# CORS_ALLOW_ORIGIN_REGEX=https://.*\.vercel\.app
 ```
 
 ## Main API routes

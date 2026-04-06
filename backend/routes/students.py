@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, File, Query, UploadFile
 from auth.jwt_handler import get_current_admin
 from services.applicant_service import parse_master_students_file
 from services.database_service import (
+    normalize_branch,
     get_master_students,
     get_storage_status,
     get_truly_unplaced_students,
@@ -31,9 +32,14 @@ async def upload_master_students(file: UploadFile = File(...), _=Depends(get_cur
 @router.get("/unplaced")
 def truly_unplaced(
     search: Optional[str] = Query(None),
+    branch: Optional[str] = Query(None),
     _=Depends(get_current_admin),
 ):
     students = get_truly_unplaced_students()
+
+    if branch:
+        selected_branch = normalize_branch(branch)
+        students = [student for student in students if student.get("Branch") == selected_branch]
 
     if search:
         query = search.lower()

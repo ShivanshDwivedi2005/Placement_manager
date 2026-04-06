@@ -1,8 +1,19 @@
 import axios from 'axios'
 
-const BASE = import.meta.env.VITE_API_URL || '/api'
+const normalizeBaseUrl = (value) => String(value || '').trim().replace(/\/+$/, '')
+const configuredBaseUrl = normalizeBaseUrl(import.meta.env.VITE_API_URL)
 
-const api = axios.create({ baseURL: BASE })
+if (!configuredBaseUrl && !import.meta.env.DEV) {
+  // Vercel deployments should point this to the Render backend URL.
+  console.warn('VITE_API_URL is not set. Production API requests will use the current origin.')
+}
+
+const BASE = configuredBaseUrl || '/api'
+
+const api = axios.create({
+  baseURL: BASE,
+  timeout: 30000,
+})
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token')

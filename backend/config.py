@@ -3,9 +3,11 @@ from pathlib import Path
 from typing import Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from dotenv import load_dotenv
 
 
 BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
 
 
 class Settings(BaseSettings):
@@ -34,11 +36,14 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    @cached_property
+    @property
     def cors_allowed_origins(self) -> list[str]:
+        import os
+        cors_raw = os.getenv('CORS_ALLOWED_ORIGINS', '')
         raw_origins = [
             self.frontend_url,
             self.frontend_urls,
+            cors_raw,
             "http://localhost:5173",
             "http://localhost:3000",
         ]

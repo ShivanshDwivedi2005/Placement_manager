@@ -87,7 +87,6 @@ DATABASE_URL=postgresql://...
 ADMIN_PASSWORD_HASH=<bcrypt hash>
 JWT_SECRET_KEY=<long-random-secret>
 FRONTEND_URLS=https://your-vercel-app.vercel.app,https://your-custom-domain.com
-PYTHON_VERSION=3.11.9
 ```
 
 Optional but recommended:
@@ -100,6 +99,7 @@ NOTIFICATION_EMAIL=xyz@gmail.com
 ```
 
 Deployment notes:
+- The backend service is pinned to Python `3.11.9` via `backend/.python-version` so Render does not fall back to its newer default Python release.
 - `FRONTEND_URLS` supports multiple comma-separated origins
 - `CORS_ALLOW_ORIGIN_REGEX` is useful for Vercel preview URLs
 - `GZipMiddleware` is enabled in production to reduce payload size
